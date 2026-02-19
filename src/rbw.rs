@@ -10,6 +10,7 @@
 
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
+use spinners::{Spinner, Spinners, Stream};
 use std::io::Write as _;
 use std::process::{Command, Stdio};
 
@@ -44,10 +45,12 @@ pub struct RbwField {
 
 /// List namespace names: all items in `folder`, regardless of type.
 pub fn list_namespaces(folder: &str) -> Result<Vec<String>> {
+    let mut sp = Spinner::with_stream(Spinners::Dots, "Fetching namespaces…".into(), Stream::Stderr);
     let output = Command::new("rbw")
         .args(["list", "--raw"])
         .output()
         .context("failed to run `rbw list`")?;
+    sp.stop_with_newline();
 
     check_status("rbw list", &output)?;
 
@@ -66,10 +69,12 @@ pub fn list_namespaces(folder: &str) -> Result<Vec<String>> {
 /// Fetch a single item's notes and custom fields.
 /// Returns `None` if the item does not exist in the given folder.
 pub fn get_item(name: &str, folder: &str) -> Result<Option<RbwItem>> {
+    let mut sp = Spinner::with_stream(Spinners::Dots, format!("Fetching '{name}'…"), Stream::Stderr);
     let output = Command::new("rbw")
         .args(["get", "--raw", "--folder", folder, name])
         .output()
         .context("failed to run `rbw get`")?;
+    sp.stop_with_newline();
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -138,6 +143,7 @@ fn pipe_to_rbw(args: &[&str], stdin_content: &str) -> Result<()> {
         cmd.env("RBW_TTY", "/dev/tty");
     }
 
+    let mut sp = Spinner::with_stream(Spinners::Dots, "Saving to Bitwarden…".into(), Stream::Stderr);
     let mut child = cmd.spawn().context("failed to spawn rbw")?;
 
     child
@@ -148,6 +154,7 @@ fn pipe_to_rbw(args: &[&str], stdin_content: &str) -> Result<()> {
         .context("failed to write to rbw stdin")?;
 
     let status = child.wait().context("failed to wait for rbw")?;
+    sp.stop_with_newline();
     if !status.success() {
         bail!("rbw exited with status {}", status);
     }
