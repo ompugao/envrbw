@@ -1,7 +1,7 @@
 mod rbw;
 mod store;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use clap::{CommandFactory, Parser, Subcommand};
 use rpassword::read_password;
 use std::collections::HashMap;
@@ -110,9 +110,10 @@ fn cmd_exec(folder: &str, namespace: &str, cmd: &str, args: &[String]) -> Result
 }
 
 fn cmd_set(folder: &str, namespace: &str, vars: &[String], noecho: bool) -> Result<()> {
-    // Fetch existing content (or empty string for new namespace).
-    let (existing_notes, is_secure_note) = existing_notes(folder, namespace)?;
-    let is_new = existing_notes.is_empty();
+    let (existing_notes, is_new, is_secure_note) = match existing_notes(folder, namespace)? {
+        Some((notes, secure)) => (notes, false, secure),
+        None => (String::new(), true, false),
+    };
 
     let mut notes = existing_notes;
     for key in vars {
@@ -167,10 +168,8 @@ fn cmd_list(folder: &str, namespace: Option<&str>, show_value: bool) -> Result<(
 }
 
 fn cmd_unset(folder: &str, namespace: &str, vars: &[String]) -> Result<()> {
-    let (existing, is_secure_note) = existing_notes(folder, namespace)?;
-    if existing.is_empty() {
-        bail!("namespace `{namespace}` not found in folder `{folder}`");
-    }
+    let (existing, is_secure_note) = existing_notes(folder, namespace)?
+        .with_context(|| format!("namespace `{namespace}` not found in folder `{folder}`"))?;
 
     let mut notes = existing;
     for key in vars {
@@ -180,7 +179,15 @@ fn cmd_unset(folder: &str, namespace: &str, vars: &[String]) -> Result<()> {
         }
     }
 
-    write_namespace(folder, namespace, &notes, false, is_secure_note)
+    write_namespace(folder, namespace, &notes, false, is_secure_note)?;
+
+    // If all keys have been removed, delete the entry entirely.
+    if store::parse(&notes).is_empty() {
+        rbw::delete_item(namespace, folder)?;
+        eprintln!("namespace `{namespace}` is now empty and has been removed");
+    }
+
+    Ok(())
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -222,15 +229,15 @@ fn load_env_pairs(folder: &str, namespace: &str) -> Result<HashMap<String, Strin
     Ok(pairs)
 }
 
-/// Return the current notes content for a namespace, or an empty string if it
-/// does not yet exist. Also returns whether the item is a SecureNote.
-fn existing_notes(folder: &str, namespace: &str) -> Result<(String, bool)> {
+/// Return the current notes content for a namespace, or `None` if it does not
+/// exist. Also returns whether the item is a SecureNote.
+fn existing_notes(folder: &str, namespace: &str) -> Result<Option<(String, bool)>> {
     match rbw::get_item(namespace, folder)? {
         Some(item) => {
             let is_secure_note = item.item_type.as_deref() == Some("Note");
-            Ok((item.notes.unwrap_or_default(), is_secure_note))
+            Ok(Some((item.notes.unwrap_or_default(), is_secure_note)))
         }
-        None => Ok((String::new(), false)),
+        None => Ok(None),
     }
 }
 

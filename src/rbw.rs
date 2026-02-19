@@ -123,6 +123,17 @@ pub fn edit_item(name: &str, folder: &str, notes_content: &str, is_secure_note: 
     pipe_to_rbw(&["edit", "--folder", folder, name], &stdin_content)
 }
 
+/// Delete an entry by name and folder.
+pub fn delete_item(name: &str, folder: &str) -> Result<()> {
+    let mut sp = Spinner::with_stream(Spinners::Dots, "Deleting from Bitwarden…".into(), Stream::Stderr);
+    let output = Command::new("rbw")
+        .args(["remove", "--folder", folder, name])
+        .output()
+        .context("failed to run `rbw remove`")?;
+    sp.stop_with_newline();
+    check_status("rbw remove", &output)
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Run an rbw command with the given args, piping `stdin_content` to its stdin.
